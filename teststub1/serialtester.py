@@ -1,20 +1,15 @@
 import serial
 import struct
+import time
 
 
 class SerialSpeedTester:
     def __init__(self):
         self.serial_port = None
         self.is_port_opened = False
-        self.incoming_data = []
-        self.file_buffer = []
         self.serial_buffer = bytearray()
-        self.total_buffer_length = 0
-        self.converted_number = 0
         self.filename = ""
         self.dt1 = None
-        self.dt2 = None
-        self.elapsed_seconds = 0
 
     def get_available_ports(self):
         import serial.tools.list_ports
@@ -30,32 +25,21 @@ class SerialSpeedTester:
             self.serial_port.write(command.encode())
 
     def read_serial_data(self):
-        if self.is_port_opened:
-            # returns the number of bytes in the input buffer
-            bytes_to_read = self.serial_port.in_waiting
-        if bytes_to_read:  # checks if there are any available bytes to read
-            self.serial_buffer += self.serial_port.read(bytes_to_read)
-            self.incoming_data.append(self.serial_buffer)
-            self.total_buffer_length += bytes_to_read
-            return True
-        return False
+        while self.serial_port.in_waiting > 0:
+            self.serial_buffer += self.serial_port.read(
+                self.serial_port.in_waiting)
+            print("Received", len(self.serial_buffer), "bytes so far")
+        return len(self.serial_buffer) > 0
 
     def print_to_file(self):
-        if self.incoming_data:
-            buffer_array = b''.join(self.incoming_data)
-            buffer_array_numbers = len(buffer_array) // 3
-
-            for i in range(buffer_array_numbers):
-                converted_number = int.from_bytes(
-                    buffer_array[i*3: (i+1)*3], byteorder='little', signed=False)
-                self.file_buffer.append(converted_number)
-
+        if self.serial_buffer:
+            buffer_array_numbers = len(self.serial_buffer) // 3
             with open(self.filename, 'a') as file:
-                for number in self.file_buffer:
-                    file.write(str(number) + '\n')
-
-            self.incoming_data.clear()
-            self.file_buffer.clear()
+                for i in range(buffer_array_numbers):
+                    converted_number = int.from_bytes(
+                        self.serial_buffer[i*3: (i+1)*3], byteorder='little', signed=False)
+                    file.write(str(converted_number) + '\n')
+            self.serial_buffer.clear()
 
     def close_serial_port(self):
         if self.is_port_opened:
@@ -68,8 +52,7 @@ class SerialSpeedTester:
             print("No serial ports available.")
             return
 
-        port_name = input(
-            "Enter the serial port : ")
+        port_name = input("Enter the serial port : ")
         self.open_serial_port(port_name)
 
         command_character = input("Enter the character to send ('b' or 'd'): ")
@@ -77,9 +60,19 @@ class SerialSpeedTester:
 
         self.filename = input("Enter filename: ")
 
+        self.dt1 = time.time()  # Record the start time
+
         while True:
             if self.read_serial_data():
                 self.print_to_file()
+
+            # Check if 5 seconds have elapsed
+            if time.time() - self.dt1 >= 5:
+                break
+
+        # Ensure all remaining data is read before closing
+        while self.read_serial_data():
+            self.print_to_file()
 
         self.close_serial_port()
 

@@ -16,14 +16,14 @@ void loop() {
         testNumber = 0;                                  // Reset test number
         loopCounter = 0;                                 // Reset loop counter
         StartTime = micros();                            // Start the timer
-        while (loopCounter < 10000000) {                 // 10M points for a 10 kHz signal
+        while (loopCounter < 50000000) {                 // 5M points for a 10 kHz signal
           float t = loopCounter * 1e-5;                  // Time in seconds
           float sinValue = 127.5 * (1 + sin(20000 * PI * t));  // Generate sine wave
           testbuffer[0] = (uint8_t)sinValue;            // First 8 bits
           testbuffer[1] = (uint8_t)sinValue;            // 8-15 bits (same as first 8 bits)
           Serial.write(testbuffer, sizeof(testbuffer));  // Send the buffer
           loopCounter++;                                 // Increase the loop counter
-          if (micros() - StartTime >= 1000000) {         // 1 s timeout
+          if (micros() - StartTime >= 50000000) {         // 1 s timeout
             break;                                       // Exit the loop
           }
         }
