@@ -1,3 +1,5 @@
+Refer to this link for the checksum integration https://www.tutorialspoint.com/cyclic-redundancy-check-crc-in-arduino
+
 ### Test Stub: 1
 **Arduino to PC data transfer**
 
