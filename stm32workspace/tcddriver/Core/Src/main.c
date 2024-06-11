@@ -70,6 +70,8 @@ static void MX_ADC1_Init(void);
 /* USER CODE BEGIN 0 */
 #define CCDBuffer 6000
 volatile uint16_t CCDPixelBuffer[CCDBuffer];
+volatile uint8_t start_command_received = 0;
+uint8_t inputBuffer[64];
 
 /* USER CODE END 0 */
 
@@ -116,6 +118,10 @@ int main(void)
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4); //ADC
   HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3); //SH
 
+  if (!start_command_received) {
+  CDC_Transmit_FS("Target Ready\r\n",14);
+  HAL_Delay(1000);}
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -125,7 +131,12 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  HAL_ADC_Start_DMA(&hadc1, (uint32_t*) CCDPixelBuffer, CCDBuffer);
+//	  HAL_ADC_Start_DMA(&hadc1, (uint32_t*) CCDPixelBuffer, CCDBuffer);
+
+	  if (start_command_received) {
+	    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)CCDPixelBuffer, CCDBuffer);
+	  }
+
   }
   /* USER CODE END 3 */
 }
@@ -506,8 +517,60 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-CDC_Transmit_FS((uint8_t*) CCDPixelBuffer, CCDBuffer);
+//CDC_Transmit_FS((uint8_t*) CCDPixelBuffer, CCDBuffer);
+HAL_ADC_Stop_DMA(&hadc1); //stop the dma
+IdentifySpectrum(CCDPixelBuffer, CCDBuffer, 3100);// the last value is the threshold
+start_command_received = 0; // Set the flag
 }
+
+
+void CDCReceiveCallback(uint8_t* Buf, uint32_t Len) {
+  // Check for the "start" command
+  if (Len >= 5 && strncmp((char*)Buf, "start", 5) == 0) {
+    start_command_received = 1; // Set the flag
+  }
+}
+
+void IdentifySpectrum(volatile uint16_t* buffer, uint32_t buffer_size, uint16_t threshold) {
+    uint32_t spectrum_start_index = 0;
+    uint32_t spectrum_end_index = 0;
+    uint8_t spectrum_found = 0;
+
+    // Iterate through the buffer to find the start and end of a valid spectrum
+    for (uint32_t i = 0; i < buffer_size - 1; i += 2) {
+        // Combine two consecutive half-words to form one value
+        uint16_t pixel_value = (buffer[i] | (buffer[i + 1] << 8));
+
+        if (!spectrum_found) {
+            // start of the spectrum
+            if (pixel_value > threshold) {
+                spectrum_start_index = i;
+                spectrum_found = 1;
+                i += 100; // skip a few values so that it just doesnt take the same dummy pixel
+            }
+        } else {
+            // end of the spectrum
+            if (pixel_value > threshold) {
+                spectrum_end_index = i + 2; // End index just after the threshold
+                break; // Exit the loop once the end is found
+            }
+        }
+    }
+
+    // Ensure the spectrum does not exceed the buffer size
+    if (spectrum_end_index > buffer_size) {
+        spectrum_end_index = buffer_size;
+    }
+
+    // Calculate the length of the spectrum
+    uint32_t spectrum_length = spectrum_end_index - spectrum_start_index;
+
+    // Transmit the identified spectrum
+    if (spectrum_length > 0) {
+        CDC_Transmit_FS((uint8_t*)&buffer[spectrum_start_index], spectrum_length);
+    }
+}
+
 
 
 /* USER CODE END 4 */

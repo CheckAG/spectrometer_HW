@@ -55,6 +55,11 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+// In main.h
+void CDCReceiveCallback(uint8_t* Buf, uint32_t Len);
+void IdentifySpectrum(volatile uint16_t* buffer, uint32_t buffer_size, uint16_t threshold);
+
+
 
 /* USER CODE END EFP */
 

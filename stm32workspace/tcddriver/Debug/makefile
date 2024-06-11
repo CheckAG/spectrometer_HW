@@ -64,8 +64,8 @@ all: main-build
 main-build: tcddriver.elf secondary-outputs
 
 # Tool invocations
-tcddriver.elf tcddriver.map: $(OBJS) $(USER_OBJS) C:\Users\Faizan\ Tabassum\Desktop\Spectrometer\stm32workspace\tcddriver\STM32F401CCUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "tcddriver.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\Faizan Tabassum\Desktop\Spectrometer\stm32workspace\tcddriver\STM32F401CCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="tcddriver.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+tcddriver.elf tcddriver.map: $(OBJS) $(USER_OBJS) C:\Users\Faizan\ Tabassum\Desktop\test\spectrometer_HW\stm32workspace\tcddriver\STM32F401CCUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "tcddriver.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\Faizan Tabassum\Desktop\test\spectrometer_HW\stm32workspace\tcddriver\STM32F401CCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="tcddriver.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
