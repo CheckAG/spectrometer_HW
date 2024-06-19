@@ -49,7 +49,6 @@
   */
 
 /* USER CODE BEGIN PRIVATE_TYPES */
-extern uint8_t inputBuffer[64];
 
 /* USER CODE END PRIVATE_TYPES */
 
@@ -129,6 +128,7 @@ static int8_t CDC_Receive_FS(uint8_t* pbuf, uint32_t *Len);
 static int8_t CDC_TransmitCplt_FS(uint8_t *pbuf, uint32_t *Len, uint8_t epnum);
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_DECLARATION */
+uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
 
 /* USER CODE END PRIVATE_FUNCTIONS_DECLARATION */
 
@@ -265,10 +265,6 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
   CDCReceiveCallback(Buf, *Len);
-  uint8_t len = (uint8_t) *Len;
-  memset (inputBuffer, '\0', 64);
-  memcpy (inputBuffer, Buf, len);
-  memset (Buf, '\0', len);
   return (USBD_OK);
   /* USER CODE END 6 */
 }

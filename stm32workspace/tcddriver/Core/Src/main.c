@@ -22,6 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "string.h"
 
 /* USER CODE END Includes */
 
@@ -32,6 +33,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define HEADER_SIZE 200//this is just a big enough number, to accomodate all the elements, will have to calculate the exact value later
+#define FOOTER_SIZE 2 //this is not really needed but just added it for uniformity
+#define CCD_PIXEL_BUFFER_SIZE (6000) // Adjust as needed for header, data, and footer
 
 /* USER CODE END PD */
 
@@ -51,6 +55,27 @@ TIM_HandleTypeDef htim5;
 
 /* USER CODE BEGIN PV */
 
+// Global variables for header values, these are all from the image sent
+char VersionNo[4] = "DCAM";
+int MajorVersion = 1;
+int FileFormatNo = 0;
+int CustomizationNo = 1;
+int CameraType = 1;  // Assuming 1: Line scanner camera
+int DataInfo[5] = {0};  // {SizeX, SizeY, DataSet, DataByte}
+int MeasureMode = 1;  // Assuming 1: Line Scanning Mode
+int SheetData = 0;  // Assuming 0: Image data
+int Profile = 1;  // Assuming 1: Show
+char ScaleUnitChars[20] = "ADU";  // Default scale unit characters
+
+// Buffers
+char header[HEADER_SIZE];
+char footer[FOOTER_SIZE];
+
+
+volatile uint16_t CCDPixelBuffer[CCD_PIXEL_BUFFER_SIZE];
+//this is the variable to initiate the dma
+volatile uint8_t start_command_received = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -63,15 +88,20 @@ static void MX_TIM4_Init(void);
 static void MX_TIM5_Init(void);
 static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
+void IdentifySpectrum(volatile uint16_t* buffer, uint32_t buffer_size, uint16_t threshold); // dont use this for now
+void encodeData(uint16_t* data_buffer, uint32_t data_size);
+void InitializeHeaderFooter();
+void CDCReceiveCallback(uint8_t* Buf, uint32_t Len);
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc);
+void Configure_SH_Signal(uint32_t period, uint32_t pulse);
+void Configure_ICG_Signal(uint32_t period, uint32_t pulse);
+void Configure_MasterClock_Signal(uint32_t period, uint32_t pulse);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#define CCDBuffer 6000
-volatile uint16_t CCDPixelBuffer[CCDBuffer];
-volatile uint8_t start_command_received = 0;
-uint8_t inputBuffer[64];
+
 
 /* USER CODE END 0 */
 
@@ -83,6 +113,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+	//all the main implementations are after line 547 and in the main function
 
   /* USER CODE END 1 */
 
@@ -92,6 +123,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+  InitializeHeaderFooter();
 
   /* USER CODE END Init */
 
@@ -131,10 +163,11 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-//	  HAL_ADC_Start_DMA(&hadc1, (uint32_t*) CCDPixelBuffer, CCDBuffer);
+//	  HAL_ADC_Start_DMA(&hadc1, (uint32_t*) CCDPixelBuffer, CCD_PIXEL_BUFFER_SIZE);
 
 	  if (start_command_received) {
-	    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)CCDPixelBuffer, CCDBuffer);
+		  //if the user sends a start string it will initiate the dma
+	    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)CCDPixelBuffer, CCD_PIXEL_BUFFER_SIZE);
 	  }
 
   }
@@ -378,7 +411,7 @@ static void MX_TIM4_Init(void)
   htim4.Instance = TIM4;
   htim4.Init.Prescaler = 0;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 168-1;
+  htim4.Init.Period = 336-1;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
@@ -401,7 +434,7 @@ static void MX_TIM4_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 42-1;
+  sConfigOC.Pulse = 168-1;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
@@ -517,59 +550,224 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-//CDC_Transmit_FS((uint8_t*) CCDPixelBuffer, CCDBuffer);
 HAL_ADC_Stop_DMA(&hadc1); //stop the dma
-IdentifySpectrum(CCDPixelBuffer, CCDBuffer, 3100);// the last value is the threshold
+encodeData(CCDPixelBuffer,CCD_PIXEL_BUFFER_SIZE);
+//CDC_Transmit_FS((uint8_t*)header,strlen(header));
+CDC_Transmit_FS((uint8_t*) CCDPixelBuffer, CCD_PIXEL_BUFFER_SIZE);
+//CDC_Transmit_FS((uint8_t*)footer, strlen(footer));
+//IdentifySpectrum(CCDPixelBuffer, CCD_PIXEL_BUFFER_SIZE, 3100);// the last value is the threshold
 start_command_received = 0; // Set the flag
 }
 
-
+//when the stm receives anything, it checks if it is the string start
 void CDCReceiveCallback(uint8_t* Buf, uint32_t Len) {
-  // Check for the "start" command
-  if (Len >= 5 && strncmp((char*)Buf, "start", 5) == 0) {
-    start_command_received = 1; // Set the flag
-  }
-}
+    // Ensure the buffer is null-terminated
+    Buf[Len] = '\0';
 
-void IdentifySpectrum(volatile uint16_t* buffer, uint32_t buffer_size, uint16_t threshold) {
-    uint32_t spectrum_start_index = 0;
-    uint32_t spectrum_end_index = 0;
-    uint8_t spectrum_found = 0;
+    // Check for the "start" command
+    if (Len >= 5 && strncmp((char*)Buf, "start", 5) == 0) {
+        start_command_received = 1; // Set the flag
+    } else {
+        // Parse the command
+        char *command = strtok((char*)Buf, ":");
+        char *param_str = strtok(NULL, ":");
 
-    // Iterate through the buffer to find the start and end of a valid spectrum
-    for (uint32_t i = 0; i < buffer_size - 1; i += 2) {
-        // Combine two consecutive half-words to form one value
-        uint16_t pixel_value = (buffer[i] | (buffer[i + 1] << 8));
+        if (command && param_str) {
+            uint32_t param = atoi(param_str);
 
-        if (!spectrum_found) {
-            // start of the spectrum
-            if (pixel_value > threshold) {
-                spectrum_start_index = i;
-                spectrum_found = 1;
-                i += 100; // skip a few values so that it just doesnt take the same dummy pixel
-            }
-        } else {
-            // end of the spectrum
-            if (pixel_value > threshold) {
-                spectrum_end_index = i + 2; // End index just after the threshold
-                break; // Exit the loop once the end is found
+            if (strcmp(command, "SH") == 0) {
+                char *pulse_str = strtok(NULL, ":");
+                if (pulse_str) {
+                    uint32_t pulse = atoi(pulse_str);
+                    Configure_SH_Signal(param, pulse);
+                }
+            } else if (strcmp(command, "ICG") == 0) {
+                char *pulse_str = strtok(NULL, ":");
+                if (pulse_str) {
+                    uint32_t pulse = atoi(pulse_str);
+                    Configure_ICG_Signal(param, pulse);
+                }
+            } else if (strcmp(command, "MC") == 0) {  // Assuming MC for Master Clock
+                char *pulse_str = strtok(NULL, ":");
+                if (pulse_str) {
+                    uint32_t pulse = atoi(pulse_str);
+                    Configure_MasterClock_Signal(param, pulse);
+                }
+            } else if (strcmp(command, "IT") == 0) {
+                CalculateAndSetIntegrationTime(param);
             }
         }
     }
-
-    // Ensure the spectrum does not exceed the buffer size
-    if (spectrum_end_index > buffer_size) {
-        spectrum_end_index = buffer_size;
-    }
-
-    // Calculate the length of the spectrum
-    uint32_t spectrum_length = spectrum_end_index - spectrum_start_index;
-
-    // Transmit the identified spectrum
-    if (spectrum_length > 0) {
-        CDC_Transmit_FS((uint8_t*)&buffer[spectrum_start_index], spectrum_length);
-    }
 }
+
+void CalculateAndSetIntegrationTime(uint32_t integration_time_us) {
+    // Calculate the SH period (T_SH) in timer ticks
+    uint32_t T_SH_ticks = (84 * integration_time_us) - 1;  // Convert microseconds to timer ticks
+
+    // Minimum SH pulse width is 1 µs, which translates to 84 timer ticks at 84 MHz
+    uint32_t SH_pulse_ticks = 84 - 1;
+
+    // Configure the SH signal with the calculated period and pulse width
+    Configure_SH_Signal(T_SH_ticks, SH_pulse_ticks);
+}
+
+
+void InitializeHeaderFooter(void) {
+    // Construct the header
+    snprintf(header, HEADER_SIZE,
+        "Version: %s\nMajor: %d\nFileFormat: %d\nCustomization: %d\nCameraType: %d\n"
+        "SizeX: %d\nSizeY: %d\nDataSet: %d\nDataByte: %d\nMeasureMode: %d\nSheetData: %d\n"
+        "Profile: %d\nScaleUnit: %s\n",
+        VersionNo, MajorVersion, FileFormatNo, CustomizationNo, CameraType,
+        DataInfo[0], DataInfo[1], DataInfo[2], DataInfo[3],
+        MeasureMode, SheetData, Profile, ScaleUnitChars);
+
+    // Construct the footer (this example just uses a simple footer, customize as needed)
+    snprintf(footer, FOOTER_SIZE, "\n");
+}
+
+// Function to shift data and add header and footer
+void encodeData(uint16_t* data_buffer, uint32_t data_size) {
+
+	// Copy the header to the start of the buffer
+	    memcpy((void*)CCDPixelBuffer, (const void*)header, HEADER_SIZE);
+
+	    // Copy the footer to the end of the data
+	    memcpy((void*)&CCDPixelBuffer[CCD_PIXEL_BUFFER_SIZE - FOOTER_SIZE], (const void*)footer, FOOTER_SIZE);
+}
+
+void Configure_SH_Signal(uint32_t period, uint32_t pulse) {
+	HAL_TIM_PWM_Stop(&htim5, TIM_CHANNEL_3);
+	HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
+    TIM_OC_InitTypeDef sConfigOC = {0};
+
+    htim5.Init.Prescaler = 1-1;
+    htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim5.Init.Period = period-1;
+    htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+    if (HAL_TIM_PWM_Init(&htim5) != HAL_OK) {
+        // Initialization Error
+        Error_Handler();
+    }
+
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.Pulse = pulse;
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+    if (HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_3) != HAL_OK) {
+        // Configuration Error
+        Error_Handler();
+    }
+
+    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); //ICG
+    __HAL_TIM_SET_COUNTER(&htim2, 66);// 600ns delay
+    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); //fM
+    HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3); //SH
+}
+
+void Configure_ICG_Signal(uint32_t period, uint32_t pulse) {
+	HAL_TIM_PWM_Stop(&htim5, TIM_CHANNEL_3);
+	HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
+    TIM_OC_InitTypeDef sConfigOC = {0};
+
+    htim2.Init.Prescaler = 1-1;
+    htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim2.Init.Period = period-1;
+    htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+    if (HAL_TIM_PWM_Init(&htim2) != HAL_OK) {
+        // Initialization Error
+        Error_Handler();
+    }
+
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.Pulse = pulse;
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+    if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
+        // Configuration Error
+        Error_Handler();
+    }
+
+    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); //ICG
+    __HAL_TIM_SET_COUNTER(&htim2, 66);// 600ns delay
+    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); //fM
+    HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3); //SH
+}
+
+void Configure_MasterClock_Signal(uint32_t period, uint32_t pulse) {
+	HAL_TIM_PWM_Stop(&htim5, TIM_CHANNEL_3);
+	HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
+    TIM_OC_InitTypeDef sConfigOC = {0};
+
+    htim3.Init.Prescaler = 1-1;
+    htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim3.Init.Period = period-1;
+    htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+    if (HAL_TIM_PWM_Init(&htim3) != HAL_OK) {
+        // Initialization Error
+        Error_Handler();
+    }
+
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.Pulse = pulse;
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+    if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
+        // Configuration Error
+        Error_Handler();
+    }
+
+    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); //ICG
+    __HAL_TIM_SET_COUNTER(&htim2, 66);// 600ns delay
+    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); //fM
+    HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3); //SH
+}
+// the below code was an attempt to identify the single spectra itself however needs to be tested
+//void IdentifySpectrum(volatile uint16_t* buffer, uint32_t buffer_size, uint16_t threshold) {
+//    uint32_t spectrum_start_index = 0;
+//    uint32_t spectrum_end_index = 0;
+//    uint8_t spectrum_found = 0;
+//
+//    // Iterate through the buffer to find the start and end of a valid spectrum
+//    for (uint32_t i = 0; i < buffer_size - 1; i += 2) {
+//        // Combine two consecutive half-words to form one value
+//        uint16_t pixel_value = (buffer[i] | (buffer[i + 1] << 8));
+//
+//        if (!spectrum_found) {
+//            // start of the spectrum
+//            if (pixel_value > threshold) {
+//                spectrum_start_index = i;
+//                spectrum_found = 1;
+//                i += 100; // skip a few values so that it just doesnt take the same dummy pixel
+//            }
+//        } else {
+//            // end of the spectrum
+//            if (pixel_value > threshold) {
+//                spectrum_end_index = i + 2; // End index just after the threshold
+//                break; // Exit the loop once the end is found
+//            }
+//        }
+//    }
+//
+//    // Ensure the spectrum does not exceed the buffer size
+//    if (spectrum_end_index > buffer_size) {
+//        spectrum_end_index = buffer_size;
+//    }
+//
+//    // Calculate the length of the spectrum
+//    uint32_t spectrum_length = spectrum_end_index - spectrum_start_index;
+//
+//    // Transmit the identified spectrum
+//    if (spectrum_length > 0) {
+//        CDC_Transmit_FS((uint8_t*)&buffer[spectrum_start_index], spectrum_length);
+//    }
+//}
 
 
 
