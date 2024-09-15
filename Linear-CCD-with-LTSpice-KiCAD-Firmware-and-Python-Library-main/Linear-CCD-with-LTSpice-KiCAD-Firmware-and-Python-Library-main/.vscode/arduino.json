@@ -1,0 +1,4 @@
+{
+    "board": "arduino:samd:mkr1000",
+    "sketch": "TCD1304Rev2b_Firmware.230301\\TCD1304Rev2b_Firmware.230301.ino"
+}

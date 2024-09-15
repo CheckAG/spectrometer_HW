@@ -1,0 +1,13 @@
+LTspice 24.0.12 for Windows
+Circuit: * C:\Users\Faizan Tabassum\Documents\CheckAg\Linear-CCD-with-LTSpice-KiCAD-Firmware-and-Python-Library-main\Linear-CCD-with-LTSpice-KiCAD-Firmware-and-Python-Library-main\TCD1304Rev2b.asc
+Start Time: Thu Sep  5 14:51:43 2024
+solver = Normal
+Maximum thread count: 16
+tnom = 27
+temp = 27
+method = modified trap
+WARNING: Specified period is not longer than the sum of Trise, Tfall, and Ton for v1.  Increasing period to 1.02e-06
+WARNING: Less than two connections to node n006.  This node is used by r11.
+Direct Newton iteration for .op point succeeded.
+Total elapsed time: 0.165 seconds.
+
