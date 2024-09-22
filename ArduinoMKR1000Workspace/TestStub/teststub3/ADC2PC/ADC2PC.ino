@@ -1,6 +1,7 @@
 // this code has been referenced from the following link https://forcetronic.blogspot.com/2018/06/speeding-up-adc-on-arduino-samd21.html
 /* i have modified the code to send the data received to the serial port as fast as possible as a 16 bit number
-ive tested out the code for an arduino uno and it seems to work fine but that was done using the analog read function*/
+, however we need to send them as 8 bits im assuming becasue the adc is configured to 8 bit mode
+ive tested out the code for an arduino and it seems it work fine but that was used using the analog read function*/
 float StartTime = 0;      // Timer
 long loopCounter = 0;     // Keeps track of the number of iterations
 uint16_t testNumber = 0;  // A 16-bit number as an example
